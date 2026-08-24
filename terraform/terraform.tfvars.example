@@ -1,6 +1,9 @@
 # Copy to terraform.tfvars and fill in sensitive values.
 # Never commit terraform.tfvars to source control.
 
+# Run `az account show --query id -o tsv` to get this.
+subscription_id = "CHANGE_ME_your_azure_subscription_id"
+
 location    = "eastus"
 environment = "dev"
 project     = "testfixtures"
