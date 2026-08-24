@@ -8,7 +8,7 @@ on:
         description: 'Resource group name (leave empty to auto-detect by tags)'
         required: false
 
-  # Test suite signals completion: POST /repos/nullhypothesis7/testfixtures/dispatches
+  # Test suite signals completion: POST /repos/nullhypothesis7/loadfixtures/dispatches
   # with body {"event_type":"tests-complete"}
   repository_dispatch:
     types: [tests-complete]

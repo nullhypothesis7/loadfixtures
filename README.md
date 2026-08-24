@@ -1,6 +1,6 @@
 # loadfixtures
 
-![tests](https://github.com/nullhypothesis7/testfixtures/actions/workflows/ci.yml/badge.svg)
+![tests](https://github.com/nullhypothesis7/loadfixtures/actions/workflows/ci.yml/badge.svg)
 
 A self-contained, enterprise-grade load testing data generator built with Java and Spring Boot. Designed for performance engineers who need to populate realistic, constraint-safe test data into complex schemas — without writing a line of SQL by hand.
 
@@ -137,7 +137,7 @@ The script is pgbank-specific (hardcoded schemas and seed data for `ref.country`
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/nullhypothesis7/testfixtures.git
+git clone https://github.com/nullhypothesis7/loadfixtures.git
 cd loadfixtures
 cp env.example .env
 ```
@@ -545,7 +545,7 @@ The flag tags the Azure resource group (`lifecycle=auto`). The destroy workflow 
 curl -X POST \
   -H "Authorization: token $GITHUB_TOKEN" \
   -H "Accept: application/vnd.github.v3+json" \
-  https://api.github.com/repos/nullhypothesis7/testfixtures/dispatches \
+  https://api.github.com/repos/nullhypothesis7/loadfixtures/dispatches \
   -d '{"event_type": "tests-complete"}'
 ```
 
