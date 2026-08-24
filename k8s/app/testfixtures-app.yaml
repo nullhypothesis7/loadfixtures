@@ -1,0 +1,187 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: testfixtures-app-db-credentials
+  namespace: testfixtures-app
+stringData:
+  DB_USER_TESTDB: testuser
+  DB_PASS_TESTDB: testpass
+  DB_USER_BANKING: bankinguser
+  DB_PASS_BANKING: bankingpass
+  DB_USER_HEALTHCARE: healthcareuser
+  DB_PASS_HEALTHCARE: healthcarepass
+  DB_USER_BANKSCHEMA: bankschemauser
+  DB_PASS_BANKSCHEMA: bankschemapass
+  DB_USER_SALESFORCE: salesforceuser
+  DB_PASS_SALESFORCE: salesforcepass
+  DB_USER_SALESFORCEENTERPRISE: salesforceentuser
+  DB_PASS_SALESFORCEENTERPRISE: salesforceentpass
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  namespace: testfixtures-app
+spec:
+  selector:
+    app: testfixtures-app
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: testfixtures-app-output
+  namespace: testfixtures-app
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: hostpath
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testfixtures-app
+  namespace: testfixtures-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testfixtures-app
+  template:
+    metadata:
+      labels:
+        app: testfixtures-app
+    spec:
+      enableServiceLinks: false
+      containers:
+      - name: app
+        image: testfixtures-app:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # Database URLs (cross-namespace DNS)
+        - name: DB_URL_TESTDB
+          value: "jdbc:postgresql://postgres-testdb.testfixtures-data.svc.cluster.local:5432/testdb"
+        - name: DB_URL_BANKING
+          value: "jdbc:postgresql://postgres-banking.testfixtures-data.svc.cluster.local:5432/bankingdb"
+        - name: DB_URL_HEALTHCARE
+          value: "jdbc:postgresql://postgres-healthcare.testfixtures-data.svc.cluster.local:5432/healthcaredb"
+        - name: DB_URL_BANKSCHEMA
+          value: "jdbc:postgresql://postgres-bank.testfixtures-data.svc.cluster.local:5432/bankschemadb"
+        - name: DB_URL_SALESFORCE
+          value: "jdbc:postgresql://postgres-salesforce.testfixtures-data.svc.cluster.local:5432/salesforcedb"
+        - name: DB_URL_SALESFORCEENTERPRISE
+          value: "jdbc:postgresql://postgres-salesforce-enterprise.testfixtures-data.svc.cluster.local:5432/salesforceenterprisedb"
+        # Database credentials (from secret)
+        - name: DB_USER_TESTDB
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_USER_TESTDB
+        - name: DB_PASS_TESTDB
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_PASS_TESTDB
+        - name: DB_USER_BANKING
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_USER_BANKING
+        - name: DB_PASS_BANKING
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_PASS_BANKING
+        - name: DB_USER_HEALTHCARE
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_USER_HEALTHCARE
+        - name: DB_PASS_HEALTHCARE
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_PASS_HEALTHCARE
+        - name: DB_USER_BANKSCHEMA
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_USER_BANKSCHEMA
+        - name: DB_PASS_BANKSCHEMA
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_PASS_BANKSCHEMA
+        - name: DB_USER_SALESFORCE
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_USER_SALESFORCE
+        - name: DB_PASS_SALESFORCE
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_PASS_SALESFORCE
+        - name: DB_USER_SALESFORCEENTERPRISE
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_USER_SALESFORCEENTERPRISE
+        - name: DB_PASS_SALESFORCEENTERPRISE
+          valueFrom:
+            secretKeyRef:
+              name: testfixtures-app-db-credentials
+              key: DB_PASS_SALESFORCEENTERPRISE
+        # Redis (cross-namespace DNS)
+        - name: REDIS_URL
+          value: "redis://redis.testfixtures-data.svc.cluster.local:6379"
+        # Kafka + Schema Registry (cross-namespace DNS)
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka.testfixtures-messaging.svc.cluster.local:9092"
+        - name: SCHEMA_REGISTRY_URL
+          value: "http://schema-registry.testfixtures-messaging.svc.cluster.local:8081"
+        # Worker config
+        - name: WORKER_POOL_SIZE
+          value: "10"
+        volumeMounts:
+        - name: output
+          mountPath: /app/csv-output
+          subPath: csv-output
+        - name: output
+          mountPath: /app/parquet-output
+          subPath: parquet-output
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          # Spring context + several Hikari pools + a Kafka client init can
+          # take well over the old 150s budget (60s + 6x15s) when the whole
+          # stack is cold-starting under real contention. 90s + 10x15s = 240s.
+          initialDelaySeconds: 90
+          periodSeconds: 15
+          failureThreshold: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "1000m"
+      volumes:
+      - name: output
+        persistentVolumeClaim:
+          claimName: testfixtures-app-output

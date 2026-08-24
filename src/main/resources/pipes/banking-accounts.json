@@ -1,0 +1,16 @@
+{
+  "pipeName": "banking-accounts",
+  "targetDatabase": "banking",
+  "targetTable": "accounts",
+  "batchSize": 100,
+  "totalRows": 5000,
+  "concurrency": 4,
+  "columns": [
+    { "name": "id",           "type": "SEQUENCE" },
+    { "name": "customer_id",  "type": "RANDOM_INT", "values": ["1", "1000"] },
+    { "name": "account_type", "type": "ENUM", "values": ["checking", "savings", "money_market", "cd"] },
+    { "name": "status",       "type": "ENUM", "values": ["active", "closed", "frozen"] },
+    { "name": "balance",      "type": "CURRENCY_AMOUNT" },
+    { "name": "opened_date",  "type": "DATE_PAST" }
+  ]
+}

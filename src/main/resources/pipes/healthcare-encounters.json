@@ -1,0 +1,17 @@
+{
+  "pipeName": "healthcare-encounters",
+  "targetDatabase": "healthcare",
+  "targetTable": "encounters",
+  "batchSize": 200,
+  "totalRows": 5000,
+  "concurrency": 4,
+  "columns": [
+    { "name": "id",             "type": "SEQUENCE" },
+    { "name": "patient_id",     "type": "RANDOM_INT", "values": ["1", "1000"] },
+    { "name": "provider_id",    "type": "RANDOM_INT", "values": ["1", "100"] },
+    { "name": "encounter_date", "type": "DATE_PAST" },
+    { "name": "encounter_type", "type": "ENUM", "values": ["inpatient", "outpatient", "emergency", "telehealth"] },
+    { "name": "diagnosis_code", "type": "ENUM", "values": ["Z00.00", "I10", "E11.9", "J06.9", "M54.5", "F32.9", "K21.0", "N39.0"] },
+    { "name": "status",         "type": "ENUM", "values": ["scheduled", "completed", "cancelled", "no_show"] }
+  ]
+}

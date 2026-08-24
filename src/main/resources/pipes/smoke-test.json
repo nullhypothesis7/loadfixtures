@@ -1,0 +1,16 @@
+{
+  "pipeName": "smoke-test",
+  "targetDatabase": "testdb",
+  "targetTable": "smoke_users",
+  "batchSize": 25,
+  "totalRows": 100,
+  "concurrency": 2,
+  "columns": [
+    { "name": "id",           "type": "SEQUENCE" },
+    { "name": "first_name",   "type": "FIRST_NAME" },
+    { "name": "last_name",    "type": "LAST_NAME" },
+    { "name": "email",        "type": "EMAIL" },
+    { "name": "created_date", "type": "DATE_PAST" },
+    { "name": "status",       "type": "ENUM", "values": ["active", "inactive", "pending"] }
+  ]
+}

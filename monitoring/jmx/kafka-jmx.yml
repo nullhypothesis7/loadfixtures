@@ -1,0 +1,42 @@
+hostPort: kafka-test:9999
+ssl: false
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+
+rules:
+  # Per-topic byte rates (1-minute rolling average from JMX)
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec, topic=(.+)><>OneMinuteRate'
+    name: kafka_bytes_in_per_sec
+    labels:
+      topic: "$1"
+    type: GAUGE
+
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec, topic=(.+)><>OneMinuteRate'
+    name: kafka_bytes_out_per_sec
+    labels:
+      topic: "$1"
+    type: GAUGE
+
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec, topic=(.+)><>OneMinuteRate'
+    name: kafka_messages_in_per_sec_jmx
+    labels:
+      topic: "$1"
+    type: GAUGE
+
+  # Broker-wide totals
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec><>OneMinuteRate'
+    name: kafka_bytes_in_per_sec_total
+    type: GAUGE
+
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec><>OneMinuteRate'
+    name: kafka_bytes_out_per_sec_total
+    type: GAUGE
+
+  # Replica health
+  - pattern: 'kafka.server<type=ReplicaManager, name=UnderReplicatedPartitions><>Value'
+    name: kafka_under_replicated_partitions
+    type: GAUGE
+
+  - pattern: 'kafka.controller<type=KafkaController, name=ActiveControllerCount><>Value'
+    name: kafka_active_controller_count
+    type: GAUGE

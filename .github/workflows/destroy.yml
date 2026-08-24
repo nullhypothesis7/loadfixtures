@@ -1,0 +1,87 @@
+name: destroy-environment
+
+on:
+  # Manual one-click destroy from the GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      resource_group:
+        description: 'Resource group name (leave empty to auto-detect by tags)'
+        required: false
+
+  # Test suite signals completion: POST /repos/nullhypothesis7/testfixtures/dispatches
+  # with body {"event_type":"tests-complete"}
+  repository_dispatch:
+    types: [tests-complete]
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Azure credentials are configured
+        id: preflight
+        run: |
+          if [[ -z "${{ secrets.AZURE_CREDENTIALS }}" ]]; then
+            echo "AZURE_CREDENTIALS not configured — no environment to destroy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Azure login
+        if: steps.preflight.outputs.skip == 'false'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Resolve resource group
+        id: resolve
+        if: steps.preflight.outputs.skip == 'false'
+        run: |
+          RG="${{ inputs.resource_group }}"
+          if [[ -z "$RG" ]]; then
+            RG=$(az group list \
+              --query "[?tags.project=='testfixtures' && tags.managed_by=='terraform'].name | [0]" \
+              -o tsv)
+          fi
+          if [[ -z "$RG" ]]; then
+            echo "No testfixtures resource group found — nothing to destroy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rg=$RG" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check whether this trigger should destroy
+        id: check
+        if: steps.resolve.outputs.skip == 'false'
+        run: |
+          RG="${{ steps.resolve.outputs.rg }}"
+          EVENT="${{ github.event_name }}"
+          SHOULD_DESTROY="false"
+
+          # workflow_dispatch always destroys
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            SHOULD_DESTROY="true"
+
+          # repository_dispatch destroys only if lifecycle=auto
+          elif [[ "$EVENT" == "repository_dispatch" ]]; then
+            LIFECYCLE=$(az group show --name "$RG" \
+              --query "tags.lifecycle" -o tsv 2>/dev/null || echo "manual")
+            if [[ "$LIFECYCLE" == "auto" ]]; then
+              SHOULD_DESTROY="true"
+            else
+              echo "lifecycle=$LIFECYCLE — skipping auto-destroy (not tagged auto)"
+            fi
+          fi
+
+          echo "should_destroy=$SHOULD_DESTROY" >> "$GITHUB_OUTPUT"
+
+      - name: Destroy environment
+        if: steps.check.outputs.should_destroy == 'true'
+        run: |
+          RG="${{ steps.resolve.outputs.rg }}"
+          echo "Destroying resource group: $RG"
+          az group delete --name "$RG" --yes
+          az group delete --name NetworkWatcherRG --yes 2>/dev/null || true
+          echo "Environment destroyed."

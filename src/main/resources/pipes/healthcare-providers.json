@@ -1,0 +1,17 @@
+{
+  "pipeName": "healthcare-providers",
+  "targetDatabase": "healthcare",
+  "targetTable": "providers",
+  "batchSize": 50,
+  "totalRows": 100,
+  "concurrency": 2,
+  "columns": [
+    { "name": "id",             "type": "SEQUENCE" },
+    { "name": "first_name",     "type": "FIRST_NAME" },
+    { "name": "last_name",      "type": "LAST_NAME" },
+    { "name": "email",          "type": "EMAIL" },
+    { "name": "specialty",      "type": "ENUM", "values": ["cardiology", "oncology", "neurology", "orthopedics", "primary_care", "dermatology", "psychiatry"] },
+    { "name": "license_number", "type": "UUID" },
+    { "name": "status",         "type": "ENUM", "values": ["active", "inactive", "on_leave"] }
+  ]
+}

@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-registry
+  namespace: testfixtures-messaging
+spec:
+  selector:
+    app: schema-registry
+  ports:
+  - port: 8081
+    targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-registry
+  namespace: testfixtures-messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schema-registry
+  template:
+    metadata:
+      labels:
+        app: schema-registry
+    spec:
+      enableServiceLinks: false
+      containers:
+      - name: schema-registry
+        image: confluentinc/cp-schema-registry:7.6.1
+        env:
+        - name: SCHEMA_REGISTRY_HOST_NAME
+          value: schema-registry
+        - name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS
+          value: kafka.testfixtures-messaging.svc.cluster.local:9092
+        - name: SCHEMA_REGISTRY_LISTENERS
+          value: http://0.0.0.0:8081
+        - name: SCHEMA_REGISTRY_KAFKASTORE_TIMEOUT_MS
+          value: "10000"
+        - name: SCHEMA_REGISTRY_KAFKASTORE_INIT_TIMEOUT_MS
+          value: "120000"
+        ports:
+        - containerPort: 8081
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /subjects
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 15
+        livenessProbe:
+          httpGet:
+            path: /subjects
+            port: 8081
+          # schema-registry can't become healthy until Kafka itself is ready,
+          # and Kafka's own cold-start under real contention has been observed
+          # taking up to ~5-6 minutes. A first attempt at this fix (90s +
+          # 10x15s = 240s) still got killed right at the edge (~258s) on the
+          # next run. Budget needs real margin beyond Kafka's own worst-case
+          # startup time, not just past schema-registry's own: 240s + 10x15s
+          # = 390s (6.5 min).
+          initialDelaySeconds: 240
+          periodSeconds: 15
+          failureThreshold: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

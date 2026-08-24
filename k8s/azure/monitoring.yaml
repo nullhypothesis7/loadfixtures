@@ -1,0 +1,495 @@
+# Monitoring stack: Prometheus + Grafana + six PG exporters.
+#
+# Differences from k8s/monitoring/:
+#   - Prometheus app scrape target updated to testfixtures-app.${APP_NAMESPACE}
+#   - PG exporters use DATA_SOURCE_URI/USER/PASS split so the FQDN and
+#     username are plain env vars while the password comes from a K8s Secret
+#     created by azure-deploy.sh (fetched from Key Vault at deploy time).
+#   - Grafana and dashboard ConfigMaps are identical to the source manifests.
+#
+# Placeholder substitution (azure-deploy.sh runs envsubst):
+#   APP_NAMESPACE   — terraform output app_namespace
+#   POSTGRES_FQDN   — terraform output postgres_fqdn
+#   PG_ADMIN_USERNAME — var.pg_admin_username (default: pgadmin)
+---
+# ── Prometheus ─────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: testfixtures-monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+
+      - job_name: testfixtures
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets: ['testfixtures-app.${APP_NAMESPACE}.svc.cluster.local:8080']
+
+      - job_name: postgres-testdb
+        static_configs:
+          - targets: ['pg-exporter-testdb:9187']
+            labels:
+              database: testdb
+
+      - job_name: postgres-banking
+        static_configs:
+          - targets: ['pg-exporter-banking:9187']
+            labels:
+              database: bankingdb
+
+      - job_name: postgres-healthcare
+        static_configs:
+          - targets: ['pg-exporter-healthcare:9187']
+            labels:
+              database: healthcaredb
+
+      - job_name: postgres-bank
+        static_configs:
+          - targets: ['pg-exporter-bank:9187']
+            labels:
+              database: pgbank
+
+      - job_name: postgres-salesforce
+        static_configs:
+          - targets: ['pg-exporter-salesforce:9187']
+            labels:
+              database: salesforcedb
+
+      - job_name: postgres-salesforce-enterprise
+        static_configs:
+          - targets: ['pg-exporter-salesforce-enterprise:9187']
+            labels:
+              database: salesforceenterprisedb
+
+      - job_name: kafka-exporter
+        static_configs:
+          - targets: ['kafka-exporter.testfixtures-messaging.svc.cluster.local:9308']
+
+      - job_name: kafka-jmx
+        scrape_interval: 60s
+        scrape_timeout: 45s
+        static_configs:
+          - targets: ['kafka-jmx-exporter.testfixtures-messaging.svc.cluster.local:5556']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: testfixtures-monitoring
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: testfixtures-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.51.2
+        args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.retention.time=2h
+        ports:
+        - containerPort: 9090
+          name: http
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+---
+# ── PG exporters ───────────────────────────────────────────────────────────────
+# All five point at the Azure managed PostgreSQL flexible server.
+# DATA_SOURCE_URI and DATA_SOURCE_USER are non-sensitive; DATA_SOURCE_PASS
+# comes from the pg-exporter-credentials Secret created by azure-deploy.sh.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-exporter-testdb
+  namespace: testfixtures-monitoring
+spec:
+  selector:
+    app: pg-exporter-testdb
+  ports:
+  - port: 9187
+    targetPort: 9187
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-exporter-testdb
+  namespace: testfixtures-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg-exporter-testdb
+  template:
+    metadata:
+      labels:
+        app: pg-exporter-testdb
+    spec:
+      containers:
+      - name: pg-exporter
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        env:
+        - name: DATA_SOURCE_URI
+          value: "${POSTGRES_FQDN}:5432/testdb?sslmode=require"
+        - name: DATA_SOURCE_USER
+          value: "${PG_ADMIN_USERNAME}"
+        - name: DATA_SOURCE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: pg-exporter-credentials
+              key: PG_ADMIN_PASSWORD
+        ports:
+        - containerPort: 9187
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9187
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-exporter-banking
+  namespace: testfixtures-monitoring
+spec:
+  selector:
+    app: pg-exporter-banking
+  ports:
+  - port: 9187
+    targetPort: 9187
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-exporter-banking
+  namespace: testfixtures-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg-exporter-banking
+  template:
+    metadata:
+      labels:
+        app: pg-exporter-banking
+    spec:
+      containers:
+      - name: pg-exporter
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        env:
+        - name: DATA_SOURCE_URI
+          value: "${POSTGRES_FQDN}:5432/bankingdb?sslmode=require"
+        - name: DATA_SOURCE_USER
+          value: "${PG_ADMIN_USERNAME}"
+        - name: DATA_SOURCE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: pg-exporter-credentials
+              key: PG_ADMIN_PASSWORD
+        ports:
+        - containerPort: 9187
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9187
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-exporter-healthcare
+  namespace: testfixtures-monitoring
+spec:
+  selector:
+    app: pg-exporter-healthcare
+  ports:
+  - port: 9187
+    targetPort: 9187
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-exporter-healthcare
+  namespace: testfixtures-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg-exporter-healthcare
+  template:
+    metadata:
+      labels:
+        app: pg-exporter-healthcare
+    spec:
+      containers:
+      - name: pg-exporter
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        env:
+        - name: DATA_SOURCE_URI
+          value: "${POSTGRES_FQDN}:5432/healthcaredb?sslmode=require"
+        - name: DATA_SOURCE_USER
+          value: "${PG_ADMIN_USERNAME}"
+        - name: DATA_SOURCE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: pg-exporter-credentials
+              key: PG_ADMIN_PASSWORD
+        ports:
+        - containerPort: 9187
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9187
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-exporter-bank
+  namespace: testfixtures-monitoring
+spec:
+  selector:
+    app: pg-exporter-bank
+  ports:
+  - port: 9187
+    targetPort: 9187
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-exporter-bank
+  namespace: testfixtures-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg-exporter-bank
+  template:
+    metadata:
+      labels:
+        app: pg-exporter-bank
+    spec:
+      containers:
+      - name: pg-exporter
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        env:
+        - name: DATA_SOURCE_URI
+          value: "${POSTGRES_FQDN}:5432/pgbank?sslmode=require"
+        - name: DATA_SOURCE_USER
+          value: "${PG_ADMIN_USERNAME}"
+        - name: DATA_SOURCE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: pg-exporter-credentials
+              key: PG_ADMIN_PASSWORD
+        ports:
+        - containerPort: 9187
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9187
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-exporter-salesforce
+  namespace: testfixtures-monitoring
+spec:
+  selector:
+    app: pg-exporter-salesforce
+  ports:
+  - port: 9187
+    targetPort: 9187
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-exporter-salesforce
+  namespace: testfixtures-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg-exporter-salesforce
+  template:
+    metadata:
+      labels:
+        app: pg-exporter-salesforce
+    spec:
+      containers:
+      - name: pg-exporter
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        env:
+        - name: DATA_SOURCE_URI
+          value: "${POSTGRES_FQDN}:5432/salesforcedb?sslmode=require"
+        - name: DATA_SOURCE_USER
+          value: "${PG_ADMIN_USERNAME}"
+        - name: DATA_SOURCE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: pg-exporter-credentials
+              key: PG_ADMIN_PASSWORD
+        ports:
+        - containerPort: 9187
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9187
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-exporter-salesforce-enterprise
+  namespace: testfixtures-monitoring
+spec:
+  selector:
+    app: pg-exporter-salesforce-enterprise
+  ports:
+  - port: 9187
+    targetPort: 9187
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-exporter-salesforce-enterprise
+  namespace: testfixtures-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg-exporter-salesforce-enterprise
+  template:
+    metadata:
+      labels:
+        app: pg-exporter-salesforce-enterprise
+    spec:
+      containers:
+      - name: pg-exporter
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        env:
+        - name: DATA_SOURCE_URI
+          value: "${POSTGRES_FQDN}:5432/salesforceenterprisedb?sslmode=require"
+        - name: DATA_SOURCE_USER
+          value: "${PG_ADMIN_USERNAME}"
+        - name: DATA_SOURCE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: pg-exporter-credentials
+              key: PG_ADMIN_PASSWORD
+        ports:
+        - containerPort: 9187
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9187
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"

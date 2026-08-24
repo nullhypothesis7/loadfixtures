@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testfixtures
+  labels:
+    app.kubernetes.io/part-of: testfixtures
+    azure.workload.identity/use: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testfixtures-data
+  labels:
+    app.kubernetes.io/part-of: testfixtures
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testfixtures-messaging
+  labels:
+    app.kubernetes.io/part-of: testfixtures
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testfixtures-monitoring
+  labels:
+    app.kubernetes.io/part-of: testfixtures

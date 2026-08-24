@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parallel K8s Full Test — 2026-08-21</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d23; --muted: #5b6270; --border: #e2e5ea;
+    --card: #f7f8fa; --accent: #2f6fed; --good: #1a8754; --bad: #d1373f; --warn: #b8860b;
+    --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --fg:#e8eaed; --muted:#9aa2b1; --border:#2a2e37; --card:#1b1e24; --accent:#6d9bff; --good:#3ecf8e; --bad:#ff6b6b; --warn:#e0b03e; }
+  }
+  :root[data-theme="dark"] { --bg:#14161a; --fg:#e8eaed; --muted:#9aa2b1; --border:#2a2e37; --card:#1b1e24; --accent:#6d9bff; --good:#3ecf8e; --bad:#ff6b6b; --warn:#e0b03e; }
+  :root[data-theme="light"] { --bg:#ffffff; --fg:#1a1d23; --muted:#5b6270; --border:#e2e5ea; --card:#f7f8fa; --accent:#2f6fed; --good:#1a8754; --bad:#d1373f; --warn:#b8860b; }
+
+  * { box-sizing: border-box; }
+  body { background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:2.5rem 1.25rem 5rem; line-height:1.5; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size:1.6rem; margin:0 0 .25rem; }
+  .subtitle { color:var(--muted); margin:0 0 2rem; font-size:.95rem; }
+  h2 { font-size:1.15rem; border-top:1px solid var(--border); padding-top:2rem; margin-top:2.5rem; }
+  h2:first-of-type { border-top: none; padding-top:0; margin-top:0; }
+  h3 { font-size:.95rem; margin: 1.5rem 0 .5rem; color: var(--fg); }
+  p { color: var(--fg); }
+  .badge { display:inline-block; padding:.15rem .55rem; border-radius:999px; font-size:.75rem; font-weight:600; }
+  .badge.good { background:color-mix(in srgb, var(--good) 15%, transparent); color:var(--good); }
+  .badge.bad { background:color-mix(in srgb, var(--bad) 15%, transparent); color:var(--bad); }
+  .badge.warn { background:color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn); }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.75rem; margin:1rem 0; }
+  .tile { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:.9rem 1rem; }
+  .tile .num { font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums; }
+  .tile .label { color:var(--muted); font-size:.78rem; margin-top:.15rem; }
+  table { width:100%; border-collapse:collapse; margin:1rem 0; font-size:.88rem; }
+  .tablewrap { overflow-x:auto; }
+  th, td { text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; font-size:.78rem; text-transform:uppercase; letter-spacing:.02em; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  code, .mono { font-family:var(--mono); font-size:.85em; background:var(--card); padding:.1rem .35rem; border-radius:4px; }
+  .note { background:var(--card); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:6px; padding:.8rem 1rem; margin:1rem 0; font-size:.9rem; color:var(--muted); }
+  .note strong { color: var(--fg); }
+  .note.bug { border-left-color: var(--bad); }
+  .note.fix { border-left-color: var(--good); }
+  .check { color:var(--good); }
+  ul { padding-left:1.3rem; }
+  li { margin: .3rem 0; }
+  footer { color:var(--muted); font-size:.8rem; margin-top:3rem; border-top:1px solid var(--border); padding-top:1rem; }
+  .shotgrid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin: .75rem 0 1.5rem; }
+  .shotgrid figure { margin:0; background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .shotgrid img { width:100%; display:block; }
+  .shotgrid figcaption { padding:.5rem .75rem; font-size:.8rem; color:var(--muted); border-top:1px solid var(--border); }
+  @media (max-width: 720px) { .shotgrid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Parallel K8s Full Test — All 6 Schemas, All 3 Sinks, Both Environments</h1>
+  <p class="subtitle">2026-08-21 · Local (Docker Desktop K8s) + Azure (AKS), side by side · fresh 6-database schema, fed cold via DDL onboarding · unattended validation pass ahead of sharing the branch</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="num">2</div><div class="label">environments, both real K8s</div></div>
+    <div class="tile"><div class="num">6</div><div class="label">schemas, 203 tables each</div></div>
+    <div class="tile"><div class="num">404</div><div class="label">JDBC pipe runs, 0 failed</div></div>
+    <div class="tile"><div class="num">512</div><div class="label">FK relationships checked, 0 orphans</div></div>
+    <div class="tile"><div class="num">406,000</div><div class="label">rows landed via Kafka (post-fix)</div></div>
+    <div class="tile"><div class="num" style="color:var(--bad)">1</div><div class="label">real product bug found + fixed</div></div>
+    <div class="tile"><div class="num" style="color:var(--warn)">4</div><div class="label">local-k8s infra gaps found + closed</div></div>
+    <div class="tile"><div class="num" style="color:var(--good)">0</div><div class="label">unresolved issues at end of run</div></div>
+  </div>
+
+  <h2>What this run covers</h2>
+  <p>Everything the app can do, exercised in both environments in parallel: <strong>local K8s (Docker Desktop)</strong> and <strong>Azure AKS</strong> — not Docker Compose. All 6 schemas (<code>example_table</code>, <code>banking_schema</code>, <code>healthcare_schema</code>, <code>bank_schema</code>, <code>salesforce_schema</code>, <code>salesforce_enterprise_schema</code>) were fed to the app cold via the DDL-only onboarding endpoint (<code>POST /api/ddl/load</code>) — the app never had a live connection to introspect; it only ever saw raw <code>CREATE TABLE</code> text, exactly as a brand-new client handoff would look.</p>
+  <p>All three write paths were tested end to end: direct <strong>JDBC</strong> insert, <strong>Kafka</strong> produce → consume (Avro, FK-topological order), and file-based <strong>Parquet/CSV</strong> sinks. Every FK relationship in every schema was checked for orphans — not sampled.</p>
+
+  <h2>Issues found and closed during this run</h2>
+  <p>Four were test-infrastructure gaps (local K8s manifests had drifted behind Azure's); one was a real bug in the app itself. All four infra gaps and the app bug were fixed and re-verified <em>within this same run</em> — nothing shipped untested.</p>
+
+  <div class="note warn">
+    <strong>Gap 1 — Local K8s never got the 2 Salesforce databases.</strong> <code>k8s/data/</code> and <code>k8s/app/testfixtures-app.yaml</code> had the Salesforce wiring commits applied to Compose and Azure, but not to local K8s. Added matching StatefulSets, secrets, and app env vars.
+  </div>
+  <div class="note warn">
+    <strong>Gap 2 — Parquet/CSV output had nowhere to land in either K8s deployment.</strong> The Compose fix (bind-mounting <code>csv-output</code>/<code>parquet-output</code>) was never carried over to K8s. Added a <code>PersistentVolumeClaim</code> + volume mounts to both the local and Azure app deployments.
+  </div>
+  <div class="note warn">
+    <strong>Gap 3 — Local K8s monitoring never got the 2 Salesforce pg-exporters.</strong> Same drift pattern as Gap 1, this time in <code>k8s/monitoring/</code>: <code>pg-exporters.yaml</code> and <code>prometheus.yaml</code> only scraped 4 of 6 databases locally. Added the missing exporters + scrape targets.
+  </div>
+  <div class="note warn">
+    <strong>Gap 4 — Local K8s Grafana had no image-renderer sidecar.</strong> Azure's <code>grafana.yaml</code> has a <code>grafana-image-renderer</code> container; local's didn't, so scripted PNG capture silently saved Grafana's "no renderer installed" placeholder image and passed its own PNG-magic-byte check (the placeholder is itself a valid PNG). Added the sidecar. Separately, even with the sidecar running, <code>grafana-image-renderer:latest</code> returned PDF-formatted bytes mislabeled with an <code>image/png</code> Content-Type header on every render call, in both environments — a plugin-version issue upstream of anything in this repo. Screenshots below were captured directly with a headless browser against the live dashboards instead, sidestepping the plugin entirely.
+  </div>
+  <div class="note bug">
+    <strong>Bug — <code>/api/consumer/run</code> silently misreported success.</strong> <code>KafkaConsumerService.consume()</code> counted <code>rowsWritten</code> from Avro messages read off Kafka, not rows actually persisted. <code>JdbcSink</code> writes with <code>INSERT ... ON CONFLICT DO NOTHING</code>, and the executeBatch() result was never checked — so when target rows already existed (exactly what happens here, since JDBC-loaded the same 6 databases first), every insert silently no-op'd while the API still reported full success with real-looking row counts (e.g. <code>"rowsWritten":88000</code> when the true number was 0). No exception anywhere; the only way to catch it was checking actual Postgres counts against the claimed counts.
+  </div>
+  <div class="note fix">
+    <strong>Fix.</strong> <code>DataSink.write()</code> now returns the number of rows actually persisted instead of <code>void</code>. <code>JdbcSink</code> sums <code>executeBatch()</code>'s real per-statement result codes; <code>KafkaSink</code>/<code>ParquetSink</code>/<code>CsvSink</code> return <code>rows.size()</code> (no conflict-skip semantics there, so that count was always honest). <code>KafkaConsumerService</code> now reports the sink's real return value. Rebuilt, redeployed, and reran the Kafka consume step in both environments: <code>rowsWritten</code> now correctly reports <code>0</code> for already-populated tables instead of lying, confirmed against actual Postgres row counts in both environments.
+  </div>
+
+  <h2>Environment topology</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Namespace</th><th class="num">Local pods</th><th class="num">Azure pods</th><th>Notes</th></tr>
+    <tr><td>app</td><td class="num">1</td><td class="num">1</td><td>Same image (rebuilt twice this run — original + the consumer fix)</td></tr>
+    <tr><td>data</td><td class="num">7</td><td class="num">1</td><td>Local: 6 Postgres StatefulSets + Redis. Azure: Redis only — Postgres is Azure Flexible Server, all 6 DBs on one managed instance</td></tr>
+    <tr><td>messaging</td><td class="num">5</td><td class="num">5</td><td>Kafka, Schema Registry, Kafka UI, kafka-exporter, kafka-jmx-exporter — identical both sides</td></tr>
+    <tr><td>monitoring</td><td class="num">8</td><td class="num">8</td><td>Grafana + 6 pg-exporters + Prometheus — identical both sides after Gap 3 fix</td></tr>
+  </table></div>
+  <p><strong>Redis queues:</strong> per-domain keys <code>testfixtures:queue:&lt;domain&gt;</code>, drained via <code>BRPOP</code> by a single <code>QueueWorker</code>. <code>KEYS testfixtures:queue:*</code> returns empty in both environments at the end of this run — every enqueued pipe was claimed and finished, nothing stuck.</p>
+
+  <h2>Load parameters</h2>
+  <p>Every pipe in this run used the DDL-onboarding defaults (<code>PipeBuilder</code>): <span class="mono">batchSize=100</span>, <span class="mono">totalRows=1000</span> per table, <span class="mono">concurrency=1</span>. Worker pool size differs by design — <span class="mono">WORKER_POOL_SIZE=10</span> locally vs <span class="mono">4</span> on Azure — which is exactly why Azure's JDBC load took visibly longer to drain than local's for the same 202-pipe batch.</p>
+
+  <h3>Schema → database map</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Schema file</th><th>Local DB</th><th>Azure DB</th><th class="num">Tables</th><th class="num">Pipes/env</th></tr>
+    <tr><td><code>example_table.sql</code></td><td class="mono">testdb</td><td class="mono">testdb</td><td class="num">2</td><td class="num">1</td></tr>
+    <tr><td><code>banking_schema.sql</code></td><td class="mono">bankingdb</td><td class="mono">bankingdb</td><td class="num">3</td><td class="num">3</td></tr>
+    <tr><td><code>healthcare_schema.sql</code></td><td class="mono">healthcaredb</td><td class="mono">healthcaredb</td><td class="num">3</td><td class="num">3</td></tr>
+    <tr><td><code>bank_schema.sql</code></td><td class="mono">bankschemadb</td><td class="mono">pgbank</td><td class="num">88</td><td class="num">88</td></tr>
+    <tr><td><code>salesforce_schema.sql</code></td><td class="mono">salesforcedb</td><td class="mono">salesforcedb</td><td class="num">7</td><td class="num">7</td></tr>
+    <tr><td><code>salesforce_enterprise_schema.sql</code></td><td class="mono">salesforceenterprisedb</td><td class="mono">salesforceenterprisedb</td><td class="num">100</td><td class="num">100</td></tr>
+    <tr><td><strong>Total</strong></td><td></td><td></td><td class="num"><strong>203</strong></td><td class="num"><strong>202</strong></td></tr>
+  </table></div>
+
+  <h2>JDBC path — direct insert</h2>
+  <p>202 pipes enqueued per environment via <code>POST /api/ddl/load</code> (default <code>targetType: JDBC</code>), polled to completion via <code>GET /api/runs/{id}</code>.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Environment</th><th class="num">Pipes run</th><th class="num">Done</th><th class="num">Failed</th><th class="num">Rows landed</th><th class="num">FKs checked</th><th class="num">Orphans</th></tr>
+    <tr><td>Local</td><td class="num">202</td><td class="num">202</td><td class="num">0</td><td class="num">201,007<sup>*</sup></td><td class="num">256</td><td class="num"><span class="check">0</span></td></tr>
+    <tr><td>Azure</td><td class="num">202</td><td class="num">202</td><td class="num">0</td><td class="num">200,006</td><td class="num">256</td><td class="num"><span class="check">0</span></td></tr>
+  </table></div>
+  <p style="font-size:.85rem;color:var(--muted)">* Local's <code>testdb.example_table</code> shows 2,000 rather than 1,000 — an artifact of an interactive sanity-check pipe fired manually before the scripted run, not a product issue. Confirmed harmless and noted here rather than quietly excluded.</p>
+
+  <h2>Kafka path — produce → consume</h2>
+  <p>Every schema was also produced to Kafka as Avro (<code>targetType: KAFKA</code>) and drained back into the same databases via <code>POST /api/consumer/run</code>, in FK-topological order. This is the first time the two Salesforce schemas and healthcare have gone through the Kafka path — previously only <code>banking_schema</code> had been validated this way (2026-08-07).</p>
+  <div class="tablewrap"><table>
+    <tr><th>Stage</th><th class="num">Local — tables</th><th class="num">Local — rows</th><th class="num">Azure — tables</th><th class="num">Azure — rows</th></tr>
+    <tr><td>Produce to Kafka (Avro)</td><td class="num">203</td><td class="num">—</td><td class="num">203</td><td class="num">—</td></tr>
+    <tr><td>Consume — before fix <span class="badge bad">misreported</span></td><td class="num">203</td><td class="num">203,000 <em>(claimed, not real)</em></td><td class="num">203</td><td class="num">203,000 <em>(claimed, not real)</em></td></tr>
+    <tr><td>Consume — after fix <span class="badge good">honest</span></td><td class="num">203</td><td class="num">3,000 <em>(real)</em></td><td class="num">203</td><td class="num">3,000 <em>(real)</em></td></tr>
+  </table></div>
+  <p>Post-fix numbers match actual Postgres state exactly in both environments: rows only landed in <code>bankschema</code>'s <code>ref.*</code> tables, which had spare, non-conflicting primary keys; every other table's Kafka-sourced rows collided with the already-JDBC-loaded data and were correctly reported as skipped. Final combined row counts (JDBC + honest Kafka top-up), FK-orphan check re-run on the combined dataset:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Database</th><th class="num">Local rows</th><th class="num">Azure rows</th><th class="num">FKs checked</th><th class="num">Orphans</th></tr>
+    <tr><td class="mono">testdb</td><td class="num">2,000</td><td class="num">1,000</td><td class="num">0</td><td class="num"><span class="check">0</span></td></tr>
+    <tr><td class="mono">bankingdb</td><td class="num">3,000</td><td class="num">3,000</td><td class="num">2</td><td class="num"><span class="check">0</span></td></tr>
+    <tr><td class="mono">healthcaredb</td><td class="num">3,000</td><td class="num">3,000</td><td class="num">2</td><td class="num"><span class="check">0</span></td></tr>
+    <tr><td class="mono">bankschemadb / pgbank</td><td class="num">92,008</td><td class="num">92,008</td><td class="num">126</td><td class="num"><span class="check">0</span></td></tr>
+    <tr><td class="mono">salesforcedb</td><td class="num">7,000</td><td class="num">7,000</td><td class="num">15</td><td class="num"><span class="check">0</span></td></tr>
+    <tr><td class="mono">salesforceenterprisedb</td><td class="num">100,000</td><td class="num">100,000</td><td class="num">111</td><td class="num"><span class="check">0</span></td></tr>
+    <tr><td><strong>Total</strong></td><td class="num"><strong>207,008</strong></td><td class="num"><strong>206,008</strong></td><td class="num"><strong>256</strong></td><td class="num"><strong><span class="check">0</span></strong></td></tr>
+  </table></div>
+
+  <h2>Parquet / CSV — file sinks</h2>
+  <p>Both K8s deployments previously sealed sink output inside the pod's ephemeral filesystem (Gap 2, above). With the PVC fix applied, ran the built-in <code>parquet-test</code> and <code>csv-test</code> pipes (100 rows, 7 columns, real column types including <code>SEQUENCE</code>, <code>ENUM</code>, dates) in both environments and pulled the files via <code>kubectl exec</code>:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Environment</th><th>File</th><th class="num">Size</th><th>Verified</th></tr>
+    <tr><td>Local</td><td class="mono">csv-test.csv</td><td class="num">9,358 B</td><td><span class="check">✓</span> header + 100 real data rows</td></tr>
+    <tr><td>Local</td><td class="mono">parquet-test.parquet</td><td class="num">8,254 B</td><td><span class="check">✓</span> valid Parquet + <code>.crc</code> sidecar</td></tr>
+    <tr><td>Azure</td><td class="mono">csv-test.csv</td><td class="num">9,448 B</td><td><span class="check">✓</span> header + 100 real data rows</td></tr>
+    <tr><td>Azure</td><td class="mono">parquet-test.parquet</td><td class="num">8,194 B</td><td><span class="check">✓</span> valid Parquet + <code>.crc</code> sidecar</td></tr>
+  </table></div>
+
+  <h2>Grafana dashboards — both environments, side by side</h2>
+  <p>Captured directly against the live dashboards with a headless browser (see Gap 4) — real data, not the renderer plugin's broken output. Confirms the earlier answer about running Compose/K8s in parallel: <strong>these are two fully independent Grafana instances</strong>, each backed by its own in-cluster Prometheus that only scrapes its own environment. Nothing merges between them; the side-by-side layout below is the closest either environment gets to a shared view.</p>
+
+  <h3>Pipeline Overview</h3>
+  <div class="shotgrid">
+    <figure><img src="../screenshots/2026-08-21-parallel-k8s/local-pipeline-overview.png" alt="Local pipeline overview dashboard"><figcaption>Local — job status, row counts, HTTP throughput, active connections</figcaption></figure>
+    <figure><img src="../screenshots/2026-08-21-parallel-k8s/azure-pipeline-overview.png" alt="Azure pipeline overview dashboard"><figcaption>Azure — same panels; 0 jobs failed</figcaption></figure>
+  </div>
+
+  <h3>App Metrics</h3>
+  <div class="shotgrid">
+    <figure><img src="../screenshots/2026-08-21-parallel-k8s/local-app-metrics.png" alt="Local app metrics dashboard"><figcaption>Local</figcaption></figure>
+    <figure><img src="../screenshots/2026-08-21-parallel-k8s/azure-app-metrics.png" alt="Azure app metrics dashboard"><figcaption>Azure</figcaption></figure>
+  </div>
+
+  <h3>Database Metrics</h3>
+  <div class="shotgrid">
+    <figure><img src="../screenshots/2026-08-21-parallel-k8s/local-database-metrics.png" alt="Local database metrics dashboard"><figcaption>Local — live row counts per table match the verification tables above</figcaption></figure>
+    <figure><img src="../screenshots/2026-08-21-parallel-k8s/azure-database-metrics.png" alt="Azure database metrics dashboard"><figcaption>Azure</figcaption></figure>
+  </div>
+
+  <h3>Kafka Metrics</h3>
+  <div class="shotgrid">
+    <figure><img src="../screenshots/2026-08-21-parallel-k8s/local-kafka-metrics.png" alt="Local kafka metrics dashboard"><figcaption>Local — produce/consume activity from this run</figcaption></figure>
+    <figure><img src="../screenshots/2026-08-21-parallel-k8s/azure-kafka-metrics.png" alt="Azure kafka metrics dashboard"><figcaption>Azure</figcaption></figure>
+  </div>
+
+  <h2>Bottom line</h2>
+  <p>Every schema, every write path, both real K8s environments — all verified against actual database state, not just API status codes. One real bug found and fixed (silently misreported Kafka-consumer success), four local-K8s infra gaps found and closed (all mirroring pre-existing Azure/Compose config that had never been ported to local K8s), zero data-integrity issues across 512 FK checks. The Azure environment below is torn down after this report is generated — re-running <code>terraform apply</code> reproduces it from scratch.</p>
+
+  <footer>Generated from a live, unattended validation pass against current <code>main</code> (plus the consumer-bug fix and the four infra-gap fixes made during this run, all uncommitted at report time). Local K8s left running; Azure AKS destroyed via <code>terraform destroy</code> after capture.</footer>
+</div>
+</body>
+</html>

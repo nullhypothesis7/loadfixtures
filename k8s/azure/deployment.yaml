@@ -1,0 +1,219 @@
+# testfixtures app — Azure AKS deployment
+#
+# Differences from k8s/app/testfixtures-app.yaml:
+#   - Image pulled from ACR (not local registry)
+#   - Namespace and service account created by Terraform workload identity
+#   - All credentials come from Key Vault via CSI driver (no plaintext Secrets)
+#   - pgbank maps to the managed PostgreSQL flexible server
+#   - Redis and Kafka bootstrap servers point to in-cluster or managed services
+#
+# Placeholder substitution is handled by scripts/azure-deploy.sh.
+#
+# Required placeholders:
+#   ACR_LOGIN_SERVER   — terraform output acr_login_server
+#   APP_IMAGE_TAG      — docker image tag (default: latest)
+#   POSTGRES_FQDN      — terraform output postgres_fqdn
+#   PG_ADMIN_USERNAME  — var.pg_admin_username (default: pgadmin)
+#   REDIS_HOST         — Redis service hostname or FQDN
+#   KAFKA_BROKERS      — Kafka bootstrap servers
+#   APP_NAMESPACE      — terraform output app_namespace
+#   APP_SERVICE_ACCOUNT — terraform output app_service_account
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: testfixtures-app-output
+  namespace: ${APP_NAMESPACE}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testfixtures-app
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: testfixtures-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testfixtures-app
+  template:
+    metadata:
+      labels:
+        app: testfixtures-app
+        azure.workload.identity/use: "true"   # webhook injects OIDC token volume
+    spec:
+      serviceAccountName: ${APP_SERVICE_ACCOUNT}
+      enableServiceLinks: false
+
+      containers:
+        - name: app
+          image: ${ACR_LOGIN_SERVER}/testfixtures:${APP_IMAGE_TAG}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+
+          env:
+            # ── PostgreSQL — all six databases on the managed flexible server ──
+            - name: DB_URL_BANKSCHEMA
+              value: "jdbc:postgresql://${POSTGRES_FQDN}:5432/pgbank?sslmode=require"
+            - name: DB_USER_BANKSCHEMA
+              value: "${PG_ADMIN_USERNAME}"
+            - name: DB_PASS_BANKSCHEMA
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: DB_PASS_BANKSCHEMA
+
+            - name: DB_URL_TESTDB
+              value: "jdbc:postgresql://${POSTGRES_FQDN}:5432/testdb?sslmode=require"
+            - name: DB_USER_TESTDB
+              value: "${PG_ADMIN_USERNAME}"
+            - name: DB_PASS_TESTDB
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: DB_PASS_BANKSCHEMA
+
+            - name: DB_URL_BANKING
+              value: "jdbc:postgresql://${POSTGRES_FQDN}:5432/bankingdb?sslmode=require"
+            - name: DB_USER_BANKING
+              value: "${PG_ADMIN_USERNAME}"
+            - name: DB_PASS_BANKING
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: DB_PASS_BANKSCHEMA
+
+            - name: DB_URL_HEALTHCARE
+              value: "jdbc:postgresql://${POSTGRES_FQDN}:5432/healthcaredb?sslmode=require"
+            - name: DB_USER_HEALTHCARE
+              value: "${PG_ADMIN_USERNAME}"
+            - name: DB_PASS_HEALTHCARE
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: DB_PASS_BANKSCHEMA
+
+            - name: DB_URL_SALESFORCE
+              value: "jdbc:postgresql://${POSTGRES_FQDN}:5432/salesforcedb?sslmode=require"
+            - name: DB_USER_SALESFORCE
+              value: "${PG_ADMIN_USERNAME}"
+            - name: DB_PASS_SALESFORCE
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: DB_PASS_BANKSCHEMA
+
+            - name: DB_URL_SALESFORCEENTERPRISE
+              value: "jdbc:postgresql://${POSTGRES_FQDN}:5432/salesforceenterprisedb?sslmode=require"
+            - name: DB_USER_SALESFORCEENTERPRISE
+              value: "${PG_ADMIN_USERNAME}"
+            - name: DB_PASS_SALESFORCEENTERPRISE
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: DB_PASS_BANKSCHEMA
+
+            # ── Redis ────────────────────────────────────────────────────────
+            - name: REDIS_URL
+              value: "redis://${REDIS_HOST}:6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: REDIS_PASSWORD
+                  optional: true   # secret not created when redis_password var is ""
+
+            # ── Kafka ────────────────────────────────────────────────────────
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "${KAFKA_BROKERS}"
+            - name: KAFKA_SASL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: KAFKA_SASL_USERNAME
+                  optional: true
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: testfixtures-kv-secrets
+                  key: KAFKA_SASL_PASSWORD
+                  optional: true
+
+            - name: SCHEMA_REGISTRY_URL
+              value: "http://schema-registry.testfixtures-messaging.svc.cluster.local:8081"
+
+            # ── Worker config ────────────────────────────────────────────────
+            - name: WORKER_POOL_SIZE
+              value: "4"
+
+          # CSI volume mount is required for the synced K8s Secret to exist.
+          # The app does not read files from /mnt/secrets directly.
+          volumeMounts:
+            - name: kv-secrets
+              mountPath: /mnt/secrets
+              readOnly: true
+            - name: output
+              mountPath: /app/csv-output
+              subPath: csv-output
+            - name: output
+              mountPath: /app/parquet-output
+              subPath: parquet-output
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            # Spring context + several Hikari pools + a Kafka client init can
+            # take well over the old 150s budget (60s + 6x15s) when the whole
+            # stack is cold-starting under real contention. 90s + 10x15s = 240s.
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            failureThreshold: 10
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+
+      volumes:
+        - name: kv-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: testfixtures-kv-secrets
+        - name: output
+          persistentVolumeClaim:
+            claimName: testfixtures-app-output
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: testfixtures-app
+  namespace: ${APP_NAMESPACE}
+spec:
+  selector:
+    app: testfixtures-app
+  ports:
+    - port: 8080
+      targetPort: 8080

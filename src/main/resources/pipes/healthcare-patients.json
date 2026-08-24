@@ -1,0 +1,18 @@
+{
+  "pipeName": "healthcare-patients",
+  "targetDatabase": "healthcare",
+  "targetTable": "patients",
+  "batchSize": 100,
+  "totalRows": 1000,
+  "concurrency": 4,
+  "columns": [
+    { "name": "id",            "type": "SEQUENCE" },
+    { "name": "first_name",    "type": "FIRST_NAME" },
+    { "name": "last_name",     "type": "LAST_NAME" },
+    { "name": "email",         "type": "EMAIL" },
+    { "name": "phone",         "type": "PHONE" },
+    { "name": "date_of_birth", "type": "DATE_PAST" },
+    { "name": "gender",        "type": "ENUM", "values": ["male", "female", "non_binary", "prefer_not_to_say"] },
+    { "name": "status",        "type": "ENUM", "values": ["active", "inactive", "deceased"] }
+  ]
+}

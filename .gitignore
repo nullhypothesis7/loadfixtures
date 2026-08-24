@@ -1,0 +1,22 @@
+target/
+.env
+.vscode/
+csv-output/
+parquet-output/
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfstate.*.backup
+terraform/*.plan
+terraform/tfplan
+terraform/crash.log
+
+# Root-level state (terraform run outside terraform/ dir)
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfstate.*.backup
+docs/.DS_Store

@@ -1,0 +1,370 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: pgtest
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: testdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/main/resources/sql/smoke_test.sql:/docker-entrypoint-initdb.d/01-smoke_test.sql:ro
+      - ./src/main/resources/sql/example_table.sql:/docker-entrypoint-initdb.d/02-example_table.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-banking:
+    image: postgres:16
+    container_name: pgbanking
+    environment:
+      POSTGRES_USER: bankinguser
+      POSTGRES_PASSWORD: bankingpass
+      POSTGRES_DB: bankingdb
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_banking_data:/var/lib/postgresql/data
+      - ./src/main/resources/sql/banking_schema.sql:/docker-entrypoint-initdb.d/01-banking_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bankinguser -d bankingdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-bank:
+    image: postgres:16
+    container_name: pgbank
+    environment:
+      POSTGRES_USER: bankschemauser
+      POSTGRES_PASSWORD: bankschemapass
+      POSTGRES_DB: bankschemadb
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_bank_data:/var/lib/postgresql/data
+      - ./src/main/resources/sql/bank_schema.sql:/docker-entrypoint-initdb.d/01-bank_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bankschemauser -d bankschemadb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-healthcare:
+    image: postgres:16
+    container_name: pghealthcare
+    environment:
+      POSTGRES_USER: healthcareuser
+      POSTGRES_PASSWORD: healthcarepass
+      POSTGRES_DB: healthcaredb
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_healthcare_data:/var/lib/postgresql/data
+      - ./src/main/resources/sql/healthcare_schema.sql:/docker-entrypoint-initdb.d/01-healthcare_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U healthcareuser -d healthcaredb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-salesforce:
+    image: postgres:16
+    container_name: pgsalesforce
+    environment:
+      POSTGRES_USER: salesforceuser
+      POSTGRES_PASSWORD: salesforcepass
+      POSTGRES_DB: salesforcedb
+    ports:
+      - "5437:5432"
+    volumes:
+      - postgres_salesforce_data:/var/lib/postgresql/data
+      - ./src/main/resources/sql/salesforce_schema.sql:/docker-entrypoint-initdb.d/01-salesforce_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U salesforceuser -d salesforcedb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-salesforce-enterprise:
+    image: postgres:16
+    container_name: pgsalesforceenterprise
+    environment:
+      POSTGRES_USER: salesforceentuser
+      POSTGRES_PASSWORD: salesforceentpass
+      POSTGRES_DB: salesforceenterprisedb
+    ports:
+      - "5438:5432"
+    volumes:
+      - postgres_salesforce_enterprise_data:/var/lib/postgresql/data
+      - ./src/main/resources/sql/salesforce_enterprise_schema.sql:/docker-entrypoint-initdb.d/01-salesforce_enterprise_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U salesforceentuser -d salesforceenterprisedb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: kafka-test
+    hostname: kafka-test
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-test:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-test:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      JMX_PORT: "9999"
+      KAFKA_JMX_OPTS: >-
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Dcom.sun.management.jmxremote.port=9999
+        -Dcom.sun.management.jmxremote.rmi.port=9999
+        -Djava.rmi.server.hostname=kafka-test
+    ports:
+      - "9092:9092"
+      - "9999:9999"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      # Old budget (15s + 15x5s = 90s) passed this round but only barely —
+      # schema-registry's healthcheck failed outright under the same real
+      # contention, and schema-registry depends on Kafka. Widening
+      # proactively rather than waiting for this one to fail in a future run.
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    command: ["--kafka.server=kafka-test:9092", "--topic.filter=.*"]
+    ports:
+      - "9308:9308"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  kafka-jmx-exporter:
+    image: sscaling/jmx-prometheus-exporter:0.12.0
+    container_name: kafka-jmx-exporter
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./monitoring/jmx/kafka-jmx.yml:/opt/jmx_exporter/config.yml
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    container_name: schema-registry
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka-test:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TIMEOUT_MS: 10000
+      SCHEMA_REGISTRY_KAFKASTORE_INIT_TIMEOUT_MS: 120000
+    ports:
+      - "8081:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects || exit 1"]
+      # Same class of issue found in the K8s manifests: under real resource
+      # contention with the rest of the stack starting at once, schema-registry
+      # (which itself depends on Kafka electing a leader first) can take well
+      # over the old 120s budget (20s start_period + 10x10s retries). The app
+      # container has depends_on: schema-registry condition: service_healthy,
+      # so this was a hard blocking failure, not just a slow start.
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-test:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  redis:
+    image: redis:7
+    container_name: redis-test
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  pg-exporter-testdb:
+    image: prometheuscommunity/postgres-exporter
+    container_name: pg-exporter-testdb
+    environment:
+      DATA_SOURCE_NAME: "postgresql://testuser:testpass@postgres:5432/testdb?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+
+  pg-exporter-banking:
+    image: prometheuscommunity/postgres-exporter
+    container_name: pg-exporter-banking
+    environment:
+      DATA_SOURCE_NAME: "postgresql://bankinguser:bankingpass@postgres-banking:5432/bankingdb?sslmode=disable"
+    ports:
+      - "9188:9187"
+    depends_on:
+      - postgres-banking
+
+  pg-exporter-healthcare:
+    image: prometheuscommunity/postgres-exporter
+    container_name: pg-exporter-healthcare
+    environment:
+      DATA_SOURCE_NAME: "postgresql://healthcareuser:healthcarepass@postgres-healthcare:5432/healthcaredb?sslmode=disable"
+    ports:
+      - "9189:9187"
+    depends_on:
+      - postgres-healthcare
+
+  pg-exporter-bank:
+    image: prometheuscommunity/postgres-exporter
+    container_name: pg-exporter-bank
+    environment:
+      DATA_SOURCE_NAME: "postgresql://bankschemauser:bankschemapass@postgres-bank:5432/bankschemadb?sslmode=disable"
+    ports:
+      - "9190:9187"
+    depends_on:
+      - postgres-bank
+
+  pg-exporter-salesforce:
+    image: prometheuscommunity/postgres-exporter
+    container_name: pg-exporter-salesforce
+    environment:
+      DATA_SOURCE_NAME: "postgresql://salesforceuser:salesforcepass@postgres-salesforce:5432/salesforcedb?sslmode=disable"
+    ports:
+      - "9191:9187"
+    depends_on:
+      - postgres-salesforce
+
+  pg-exporter-salesforce-enterprise:
+    image: prometheuscommunity/postgres-exporter
+    container_name: pg-exporter-salesforce-enterprise
+    environment:
+      DATA_SOURCE_NAME: "postgresql://salesforceentuser:salesforceentpass@postgres-salesforce-enterprise:5432/salesforceenterprisedb?sslmode=disable"
+    ports:
+      - "9192:9187"
+    depends_on:
+      - postgres-salesforce-enterprise
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    depends_on:
+      - pg-exporter-testdb
+      - pg-exporter-banking
+      - pg-exporter-healthcare
+      - pg-exporter-bank
+      - pg-exporter-salesforce
+      - pg-exporter-salesforce-enterprise
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/dashboards-config:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  app:
+    build: .
+    container_name: testfixtures-app
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - ./csv-output:/app/csv-output
+      - ./parquet-output:/app/parquet-output
+    environment:
+      DB_URL_BANKSCHEMA: jdbc:postgresql://postgres-bank:5432/bankschemadb
+      DB_USER_BANKSCHEMA: bankschemauser
+      DB_PASS_BANKSCHEMA: bankschemapass
+      DB_URL_TESTDB: jdbc:postgresql://postgres:5432/testdb
+      DB_URL_BANKING: jdbc:postgresql://postgres-banking:5432/bankingdb
+      DB_URL_HEALTHCARE: jdbc:postgresql://postgres-healthcare:5432/healthcaredb
+      DB_URL_SALESFORCE: jdbc:postgresql://postgres-salesforce:5432/salesforcedb
+      DB_URL_SALESFORCEENTERPRISE: jdbc:postgresql://postgres-salesforce-enterprise:5432/salesforceenterprisedb
+      REDIS_URL: redis://redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka-test:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-bank:
+        condition: service_healthy
+      postgres-banking:
+        condition: service_healthy
+      postgres-healthcare:
+        condition: service_healthy
+      postgres-salesforce:
+        condition: service_healthy
+      postgres-salesforce-enterprise:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  postgres_banking_data:
+  postgres_bank_data:
+  postgres_healthcare_data:
+  postgres_salesforce_data:
+  postgres_salesforce_enterprise_data:
+  prometheus_data:
+  grafana_data:
+  kafka_data:

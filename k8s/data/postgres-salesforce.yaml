@@ -1,0 +1,260 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-salesforce-initdb
+  namespace: testfixtures-data
+data:
+  salesforce_schema.sql: |
+    -- =============================================================================
+    -- SALESFORCE SCHEMA — standard CRM object graph (7 tables)
+    -- =============================================================================
+    -- Mirrors the shape of Salesforce's own standard objects (Account, Contact,
+    -- Lead, Opportunity, OpportunityLineItem, Case, User) closely enough to
+    -- exercise the same structural quirks a real org-derived schema would:
+    -- fixed-length 18-char record Ids (CHAR(18), not SERIAL/UUID), lookup and
+    -- master-detail relationships, picklists, and self-referencing hierarchies.
+    --
+    -- Two deliberate departures from the real object model, both to keep this a
+    -- standalone schema with no other dependencies:
+    --   - "User" and "Case" are SQL reserved words, so the tables are named
+    --     sfuser / sfcase. Field names (id, ownerid, ...) are unaffected.
+    --   - OpportunityLineItem drops PricebookEntryId (real Salesforce requires
+    --     it) since that would need Product2/PricebookEntry, which are out of
+    --     scope here.
+    --
+    -- Field API names are lowercased (e.g. OwnerId -> ownerid) — Postgres folds
+    -- unquoted identifiers to lowercase, and DdlInspector/SchemaInspector do too,
+    -- so there's no case-sensitive round-trip to preserve.
+    -- =============================================================================
+
+    CREATE SCHEMA IF NOT EXISTS salesforce;
+
+    CREATE TABLE salesforce.sfuser (
+        id               CHAR(18)     PRIMARY KEY,
+        username         VARCHAR(80)  NOT NULL UNIQUE,
+        email            VARCHAR(80)  NOT NULL,
+        name             VARCHAR(80)  NOT NULL,
+        isactive         BOOLEAN      NOT NULL DEFAULT TRUE,
+        createddate      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        lastmodifieddate TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE salesforce.account (
+        id                 CHAR(18)      PRIMARY KEY,
+        name               VARCHAR(255)  NOT NULL,
+        type               VARCHAR(40)   CHECK (type IN ('Customer','Prospect','Partner','Reseller')),
+        industry           VARCHAR(40)   CHECK (industry IN ('Technology','Healthcare','Financial Services','Manufacturing','Retail')),
+        annualrevenue      NUMERIC(18,0),
+        numberofemployees  INTEGER,
+        phone              VARCHAR(40),
+        website            VARCHAR(255),
+        billingstreet      VARCHAR(255),
+        billingcity        VARCHAR(40),
+        billingstate       VARCHAR(80),
+        billingpostalcode  VARCHAR(20),
+        billingcountry     VARCHAR(80),
+        ownerid            CHAR(18)      NOT NULL REFERENCES salesforce.sfuser(id),
+        parentid           CHAR(18)      REFERENCES salesforce.account(id),
+        createddate        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        lastmodifieddate   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE salesforce.contact (
+        id                 CHAR(18)      PRIMARY KEY,
+        accountid          CHAR(18)      REFERENCES salesforce.account(id),
+        firstname          VARCHAR(40),
+        lastname           VARCHAR(80)   NOT NULL,
+        email              VARCHAR(80),
+        phone              VARCHAR(40),
+        mobilephone        VARCHAR(40),
+        title              VARCHAR(128),
+        department         VARCHAR(80),
+        mailingstreet      VARCHAR(255),
+        mailingcity        VARCHAR(40),
+        mailingstate       VARCHAR(80),
+        mailingpostalcode  VARCHAR(20),
+        mailingcountry     VARCHAR(80),
+        leadsource         VARCHAR(40)   CHECK (leadsource IN ('Web','Phone Inquiry','Partner Referral','Advertisement')),
+        ownerid            CHAR(18)      NOT NULL REFERENCES salesforce.sfuser(id),
+        reportstoid        CHAR(18)      REFERENCES salesforce.contact(id),
+        createddate        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        lastmodifieddate   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE salesforce.opportunity (
+        id                 CHAR(18)      PRIMARY KEY,
+        name               VARCHAR(120)  NOT NULL,
+        accountid          CHAR(18)      REFERENCES salesforce.account(id),
+        stagename          VARCHAR(40)   NOT NULL CHECK (stagename IN
+                               ('Prospecting','Qualification','Needs Analysis','Proposal','Negotiation','Closed Won','Closed Lost')),
+        amount             NUMERIC(18,2),
+        closedate          DATE          NOT NULL,
+        probability        NUMERIC(5,2),
+        type               VARCHAR(40)   CHECK (type IN ('New Business','Existing Business')),
+        leadsource         VARCHAR(40)   CHECK (leadsource IN ('Web','Phone Inquiry','Partner Referral','Advertisement')),
+        ownerid            CHAR(18)      NOT NULL REFERENCES salesforce.sfuser(id),
+        isclosed           BOOLEAN       NOT NULL DEFAULT FALSE,
+        iswon              BOOLEAN       NOT NULL DEFAULT FALSE,
+        createddate        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        lastmodifieddate   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE salesforce.opportunitylineitem (
+        id                 CHAR(18)      PRIMARY KEY,
+        opportunityid      CHAR(18)      NOT NULL REFERENCES salesforce.opportunity(id),
+        quantity           NUMERIC(18,3) NOT NULL,
+        unitprice          NUMERIC(18,2) NOT NULL,
+        totalprice         NUMERIC(18,2),
+        description        VARCHAR(255),
+        createddate        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        lastmodifieddate   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE salesforce.sfcase (
+        id                 CHAR(18)      PRIMARY KEY,
+        casenumber         VARCHAR(30)   NOT NULL UNIQUE,
+        accountid          CHAR(18)      REFERENCES salesforce.account(id),
+        contactid          CHAR(18)      REFERENCES salesforce.contact(id),
+        subject            VARCHAR(255),
+        description        TEXT,
+        status             VARCHAR(40)   NOT NULL DEFAULT 'New' CHECK (status IN ('New','Working','Escalated','Closed')),
+        priority           VARCHAR(40)   NOT NULL DEFAULT 'Medium' CHECK (priority IN ('Low','Medium','High')),
+        origin             VARCHAR(40)   CHECK (origin IN ('Phone','Email','Web')),
+        type               VARCHAR(40)   CHECK (type IN ('Question','Problem','Feature Request')),
+        ownerid            CHAR(18)      NOT NULL REFERENCES salesforce.sfuser(id),
+        isclosed           BOOLEAN       NOT NULL DEFAULT FALSE,
+        createddate        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        lastmodifieddate   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+
+    -- Defined last: forward-references account/contact/opportunity via its
+    -- conversion columns, so those tables need to already exist.
+    CREATE TABLE salesforce.lead (
+        id                      CHAR(18)      PRIMARY KEY,
+        firstname               VARCHAR(40),
+        lastname                VARCHAR(80)   NOT NULL,
+        company                 VARCHAR(255)  NOT NULL,
+        title                   VARCHAR(128),
+        email                   VARCHAR(80),
+        phone                   VARCHAR(40),
+        status                  VARCHAR(40)   NOT NULL DEFAULT 'Open' CHECK (status IN ('Open','Contacted','Qualified','Unqualified')),
+        leadsource              VARCHAR(40)   CHECK (leadsource IN ('Web','Phone Inquiry','Partner Referral','Advertisement')),
+        industry                VARCHAR(40)   CHECK (industry IN ('Technology','Healthcare','Financial Services','Manufacturing','Retail')),
+        rating                  VARCHAR(40)   CHECK (rating IN ('Hot','Warm','Cold')),
+        city                    VARCHAR(40),
+        state                   VARCHAR(80),
+        country                 VARCHAR(80),
+        postalcode              VARCHAR(20),
+        isconverted             BOOLEAN       NOT NULL DEFAULT FALSE,
+        convertedaccountid      CHAR(18)      REFERENCES salesforce.account(id),
+        convertedcontactid      CHAR(18)      REFERENCES salesforce.contact(id),
+        convertedopportunityid  CHAR(18)      REFERENCES salesforce.opportunity(id),
+        ownerid                 CHAR(18)      NOT NULL REFERENCES salesforce.sfuser(id),
+        createddate             TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        lastmodifieddate        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-salesforce-headless
+  namespace: testfixtures-data
+spec:
+  clusterIP: None
+  selector:
+    app: postgres-salesforce
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-salesforce
+  namespace: testfixtures-data
+spec:
+  selector:
+    app: postgres-salesforce
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-salesforce
+  namespace: testfixtures-data
+spec:
+  serviceName: postgres-salesforce-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-salesforce
+  template:
+    metadata:
+      labels:
+        app: postgres-salesforce
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-salesforce
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-salesforce
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-salesforce
+              key: POSTGRES_DB
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: initdb
+          mountPath: /docker-entrypoint-initdb.d
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "salesforceuser", "-d", "salesforcedb"]
+          timeoutSeconds: 5
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 10
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-U", "salesforceuser", "-d", "salesforcedb"]
+          timeoutSeconds: 5
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: initdb
+        configMap:
+          name: postgres-salesforce-initdb
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: hostpath
+      resources:
+        requests:
+          storage: 1Gi

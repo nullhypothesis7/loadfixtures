@@ -1,0 +1,437 @@
+# In-cluster Kafka (KRaft, single broker) for dev.
+# Changes from k8s/messaging/kafka.yaml:
+#   - storageClassName hostpath → managed-csi
+#   - storage 2Gi → 4Gi (managed-csi minimum provisioned size on AKS is 1Gi;
+#     4Gi gives headroom without costing meaningfully more)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-headless
+  namespace: testfixtures-messaging
+spec:
+  clusterIP: None
+  selector:
+    app: kafka
+  ports:
+  - name: plaintext
+    port: 9092
+    targetPort: 9092
+  - name: controller
+    port: 9093
+    targetPort: 9093
+  - name: jmx
+    port: 9999
+    targetPort: 9999
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: testfixtures-messaging
+spec:
+  selector:
+    app: kafka
+  ports:
+  - name: plaintext
+    port: 9092
+    targetPort: 9092
+  - name: jmx
+    port: 9999
+    targetPort: 9999
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: testfixtures-messaging
+spec:
+  serviceName: kafka-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: remove-lost-found
+        image: busybox
+        command: ["sh", "-c", "rm -rf /var/lib/kafka/data/lost+found"]
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/kafka/data
+        securityContext:
+          runAsUser: 0
+      containers:
+      - name: kafka
+        image: apache/kafka:3.7.0
+        env:
+        - name: KAFKA_NODE_ID
+          value: "1"
+        - name: KAFKA_PROCESS_ROLES
+          value: broker,controller
+        - name: KAFKA_LISTENERS
+          value: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: PLAINTEXT://kafka.testfixtures-messaging.svc.cluster.local:9092
+        - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+          value: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+        - name: KAFKA_CONTROLLER_LISTENER_NAMES
+          value: CONTROLLER
+        - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+          value: 1@kafka-0.kafka-headless.testfixtures-messaging.svc.cluster.local:9093
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+          value: "1"
+        - name: CLUSTER_ID
+          value: MkU3OEVBNTcwNTJENDM2Qk
+        - name: KAFKA_LOG_DIRS
+          value: /var/lib/kafka/data
+        - name: JMX_PORT
+          value: "9999"
+        - name: KAFKA_JMX_OPTS
+          value: >-
+            -Dcom.sun.management.jmxremote
+            -Dcom.sun.management.jmxremote.authenticate=false
+            -Dcom.sun.management.jmxremote.ssl=false
+            -Dcom.sun.management.jmxremote.local.only=false
+            -Dcom.sun.management.jmxremote.port=9999
+            -Dcom.sun.management.jmxremote.rmi.port=9999
+            -Djava.rmi.server.hostname=kafka.testfixtures-messaging.svc.cluster.local
+        ports:
+        - containerPort: 9092
+          name: plaintext
+        - containerPort: 9093
+          name: controller
+        - containerPort: 9999
+          name: jmx
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/kafka/data
+        readinessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 12
+        livenessProbe:
+          tcpSocket:
+            port: 9092
+          # Same class of issue as schema-registry: a JVM broker cold-starting
+          # alongside 20+ other pods under real resource contention can take
+          # well over the old 90s budget (30s + 6x10s) before it opens its
+          # listener. 30s + 10x15s = 180s gives real headroom.
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: managed-csi
+      resources:
+        requests:
+          storage: 4Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-jmx-config
+  namespace: testfixtures-messaging
+data:
+  kafka-jmx.yml: |
+    hostPort: kafka.testfixtures-messaging.svc.cluster.local:9999
+    ssl: false
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+
+    rules:
+      - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec, topic=(.+)><>OneMinuteRate'
+        name: kafka_bytes_in_per_sec
+        labels:
+          topic: "$1"
+        type: GAUGE
+
+      - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec, topic=(.+)><>OneMinuteRate'
+        name: kafka_bytes_out_per_sec
+        labels:
+          topic: "$1"
+        type: GAUGE
+
+      - pattern: 'kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec, topic=(.+)><>OneMinuteRate'
+        name: kafka_messages_in_per_sec_jmx
+        labels:
+          topic: "$1"
+        type: GAUGE
+
+      - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec><>OneMinuteRate'
+        name: kafka_bytes_in_per_sec_total
+        type: GAUGE
+
+      - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec><>OneMinuteRate'
+        name: kafka_bytes_out_per_sec_total
+        type: GAUGE
+
+      - pattern: 'kafka.server<type=ReplicaManager, name=UnderReplicatedPartitions><>Value'
+        name: kafka_under_replicated_partitions
+        type: GAUGE
+
+      - pattern: 'kafka.controller<type=KafkaController, name=ActiveControllerCount><>Value'
+        name: kafka_active_controller_count
+        type: GAUGE
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-exporter
+  namespace: testfixtures-messaging
+spec:
+  selector:
+    app: kafka-exporter
+  ports:
+  - port: 9308
+    targetPort: 9308
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-exporter
+  namespace: testfixtures-messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-exporter
+  template:
+    metadata:
+      labels:
+        app: kafka-exporter
+    spec:
+      containers:
+      - name: kafka-exporter
+        image: danielqsj/kafka-exporter:latest
+        args:
+        - --kafka.server=kafka.testfixtures-messaging.svc.cluster.local:9092
+        - --topic.filter=.*
+        ports:
+        - containerPort: 9308
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9308
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-jmx-exporter
+  namespace: testfixtures-messaging
+spec:
+  selector:
+    app: kafka-jmx-exporter
+  ports:
+  - port: 5556
+    targetPort: 5556
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-jmx-exporter
+  namespace: testfixtures-messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-jmx-exporter
+  template:
+    metadata:
+      labels:
+        app: kafka-jmx-exporter
+    spec:
+      containers:
+      - name: kafka-jmx-exporter
+        image: sscaling/jmx-prometheus-exporter:0.12.0
+        env:
+        - name: _JAVA_OPTIONS
+          value: "-Xmx256m -Xms64m -XX:MaxMetaspaceSize=128m"
+        ports:
+        - containerPort: 5556
+          name: metrics
+        volumeMounts:
+        - name: config
+          mountPath: /opt/jmx_exporter/config.yml
+          subPath: kafka-jmx.yml
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 5556
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 30
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "50m"
+          limits:
+            memory: "1Gi"
+            cpu: "200m"
+      volumes:
+      - name: config
+        configMap:
+          name: kafka-jmx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-registry
+  namespace: testfixtures-messaging
+spec:
+  selector:
+    app: schema-registry
+  ports:
+  - port: 8081
+    targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-registry
+  namespace: testfixtures-messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schema-registry
+  template:
+    metadata:
+      labels:
+        app: schema-registry
+    spec:
+      enableServiceLinks: false
+      containers:
+      - name: schema-registry
+        image: confluentinc/cp-schema-registry:7.6.1
+        env:
+        - name: SCHEMA_REGISTRY_HOST_NAME
+          value: schema-registry
+        - name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS
+          value: kafka.testfixtures-messaging.svc.cluster.local:9092
+        - name: SCHEMA_REGISTRY_LISTENERS
+          value: http://0.0.0.0:8081
+        - name: SCHEMA_REGISTRY_KAFKASTORE_TIMEOUT_MS
+          value: "10000"
+        - name: SCHEMA_REGISTRY_KAFKASTORE_INIT_TIMEOUT_MS
+          value: "120000"
+        ports:
+        - containerPort: 8081
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /subjects
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 15
+        livenessProbe:
+          httpGet:
+            path: /subjects
+            port: 8081
+          # schema-registry can't become healthy until Kafka itself is ready,
+          # and Kafka's own cold-start under real contention has been observed
+          # taking up to ~5-6 minutes. A first attempt at this fix (90s +
+          # 10x15s = 240s) still got killed right at the edge (~258s) on the
+          # next run. Budget needs real margin beyond Kafka's own worst-case
+          # startup time, not just past schema-registry's own: 240s + 10x15s
+          # = 390s (6.5 min).
+          initialDelaySeconds: 240
+          periodSeconds: 15
+          failureThreshold: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: testfixtures-messaging
+spec:
+  selector:
+    app: kafka-ui
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: testfixtures-messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+    spec:
+      containers:
+      - name: kafka-ui
+        image: provectuslabs/kafka-ui:latest
+        env:
+        - name: KAFKA_CLUSTERS_0_NAME
+          value: local
+        - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+          value: kafka.testfixtures-messaging.svc.cluster.local:9092
+        - name: KAFKA_CLUSTERS_0_SCHEMAREGISTRY
+          value: http://schema-registry.testfixtures-messaging.svc.cluster.local:8081
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          failureThreshold: 6
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

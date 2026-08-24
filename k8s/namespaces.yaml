@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testfixtures-data
+  labels:
+    app.kubernetes.io/part-of: testfixtures
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testfixtures-messaging
+  labels:
+    app.kubernetes.io/part-of: testfixtures
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testfixtures-monitoring
+  labels:
+    app.kubernetes.io/part-of: testfixtures
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: testfixtures-app
+  labels:
+    app.kubernetes.io/part-of: testfixtures

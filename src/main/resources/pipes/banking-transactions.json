@@ -1,0 +1,17 @@
+{
+  "pipeName": "banking-transactions",
+  "targetDatabase": "banking",
+  "targetTable": "transactions",
+  "batchSize": 500,
+  "totalRows": 50000,
+  "concurrency": 8,
+  "columns": [
+    { "name": "id",               "type": "SEQUENCE" },
+    { "name": "account_id",       "type": "RANDOM_INT", "values": ["1", "5000"] },
+    { "name": "transaction_type", "type": "ENUM", "values": ["credit", "debit"] },
+    { "name": "amount",           "type": "CURRENCY_AMOUNT" },
+    { "name": "transaction_date", "type": "DATE_PAST" },
+    { "name": "description",      "type": "LOREM" },
+    { "name": "status",           "type": "ENUM", "values": ["pending", "settled", "reversed", "failed"] }
+  ]
+}

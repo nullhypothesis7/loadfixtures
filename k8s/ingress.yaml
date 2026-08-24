@@ -1,0 +1,86 @@
+# nginx Ingress resources for Docker Desktop Kubernetes.
+#
+# Prerequisites:
+#   1. Install the nginx ingress controller (one-time per cluster):
+#      kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/cloud/deploy.yaml
+#      kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s
+#
+#   2. Add to /etc/hosts (requires sudo):
+#      127.0.0.1 app.testfixtures.local grafana.testfixtures.local prometheus.testfixtures.local kafka-ui.testfixtures.local
+#
+#   3. Apply this file:
+#      kubectl apply -f k8s/ingress.yaml
+#
+# Services are then reachable at:
+#   http://app.testfixtures.local       — REST API
+#   http://grafana.testfixtures.local   — Grafana dashboards
+#   http://prometheus.testfixtures.local — Prometheus
+#   http://kafka-ui.testfixtures.local  — Kafka UI
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: testfixtures-app
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: app.testfixtures.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app
+            port:
+              number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-ingress
+  namespace: testfixtures-monitoring
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: grafana.testfixtures.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+  - host: prometheus.testfixtures.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: messaging-ingress
+  namespace: testfixtures-messaging
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: kafka-ui.testfixtures.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kafka-ui
+            port:
+              number: 8080

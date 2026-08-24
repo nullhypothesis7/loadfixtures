@@ -1,0 +1,16 @@
+{
+  "pipeName": "example-table",
+  "targetDatabase": "testdb",
+  "targetTable": "example_table",
+  "batchSize": 500,
+  "totalRows": 10000,
+  "concurrency": 3,
+  "columns": [
+    { "name": "id",           "type": "SEQUENCE" },
+    { "name": "first_name",   "type": "FIRST_NAME" },
+    { "name": "last_name",    "type": "LAST_NAME" },
+    { "name": "email",        "type": "EMAIL" },
+    { "name": "created_date", "type": "DATE_PAST" },
+    { "name": "status",       "type": "ENUM", "values": ["active","inactive","pending"] }
+  ]
+}

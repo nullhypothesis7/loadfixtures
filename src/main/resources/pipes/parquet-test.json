@@ -1,0 +1,17 @@
+{
+  "pipeName": "parquet-test",
+  "targetType": "PARQUET",
+  "targetTable": "customers",
+  "batchSize": 100,
+  "totalRows": 100,
+  "concurrency": 1,
+  "columns": [
+    { "name": "id",           "type": "SEQUENCE" },
+    { "name": "first_name",   "type": "FIRST_NAME" },
+    { "name": "last_name",    "type": "LAST_NAME" },
+    { "name": "email",        "type": "EMAIL" },
+    { "name": "phone",        "type": "PHONE" },
+    { "name": "created_date", "type": "DATE_PAST" },
+    { "name": "status",       "type": "ENUM", "values": ["active", "inactive", "suspended"] }
+  ]
+}
