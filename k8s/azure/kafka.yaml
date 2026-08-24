@@ -245,7 +245,7 @@ spec:
             cpu: "50m"
           limits:
             memory: "128Mi"
-            cpu: "200m"
+            cpu: "500m"
 ---
 apiVersion: v1
 kind: Service
@@ -301,7 +301,7 @@ spec:
             cpu: "50m"
           limits:
             memory: "1Gi"
-            cpu: "200m"
+            cpu: "500m"
       volumes:
       - name: config
         configMap:
@@ -379,7 +379,7 @@ spec:
             cpu: "100m"
           limits:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "1000m"
 ---
 apiVersion: v1
 kind: Service
@@ -434,4 +434,4 @@ spec:
             cpu: "100m"
           limits:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "1000m"

@@ -115,9 +115,16 @@ spec:
           requests:
             memory: "256Mi"
             cpu: "100m"
+          # cpu limit was 500m: under real concurrent load (6 postgres pods +
+          # kafka + schema-registry + monitoring cold-starting together),
+          # pg_isready inside this container's own cgroup was getting CFS
+          # throttled and missing its 5s exec-probe timeout even though the
+          # node itself had 16 idle cores free — the node wasn't the
+          # bottleneck, this container's own quota was. Raised to match the
+          # already-1000m tier used by the larger postgres pods.
           limits:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "1000m"
       volumes:
       - name: initdb
         configMap:
