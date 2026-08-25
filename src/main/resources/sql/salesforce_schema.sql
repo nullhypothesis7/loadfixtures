@@ -22,6 +22,17 @@
 
 CREATE SCHEMA IF NOT EXISTS salesforce;
 
+-- Drop all tables first (CASCADE handles FK dependency order automatically)
+-- so re-running the schema-bootstrap step against an already-seeded database
+-- is safe, matching the pattern used by every other shipped schema file.
+DROP TABLE IF EXISTS salesforce.sfuser CASCADE;
+DROP TABLE IF EXISTS salesforce.account CASCADE;
+DROP TABLE IF EXISTS salesforce.contact CASCADE;
+DROP TABLE IF EXISTS salesforce.opportunity CASCADE;
+DROP TABLE IF EXISTS salesforce.opportunitylineitem CASCADE;
+DROP TABLE IF EXISTS salesforce.sfcase CASCADE;
+DROP TABLE IF EXISTS salesforce.lead CASCADE;
+
 CREATE TABLE salesforce.sfuser (
     id               CHAR(18)     PRIMARY KEY,
     username         VARCHAR(80)  NOT NULL UNIQUE,
